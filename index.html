@@ -17,6 +17,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <style>
 :root{
   --primary:#1f3a5f;     /* azul marino */
@@ -159,6 +162,33 @@ function seed(){
     seq:1000,
   };
 }
+/* ═══════ Firebase: sincroniza la misma información entre todos los celulares ═══════
+   1) Crea un proyecto gratis en https://console.firebase.google.com
+   2) Agrega una app web y copia su configuración aquí abajo (firebaseConfig)
+   3) Activa Firestore Database (modo de prueba) desde el menú del proyecto
+   Si dejas firebaseConfig vacío, la app sigue funcionando pero solo guarda localmente
+   (como antes), sin compartir información entre celulares. */
+const firebaseConfig = {
+  apiKey: "AIzaSyBTs9BD-loi3NT8vowsVCixXxk6_uWu010",
+  authDomain: "sefiess-app.firebaseapp.com",
+  projectId: "sefiess-app",
+  storageBucket: "sefiess-app.firebasestorage.app",
+  messagingSenderId: "644010636436",
+  appId: "1:644010636436:web:9cce615fdfcac62f8e3081"
+};
+let fireDoc=null;
+try{
+  if(firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith("PEGA_AQUI")){
+    firebase.initializeApp(firebaseConfig);
+    const fs=firebase.firestore();
+    try{ fs.enablePersistence({synchronizeTabs:true}); }catch(e){}
+    fireDoc=fs.collection("sefiess").doc("estado");
+    // Inicia sesión anónima: así solo quien pase por esta app (no cualquiera con las claves) puede leer/escribir,
+    // siempre que las Reglas de Firestore exijan request.auth != null (ver instrucciones).
+    firebase.auth().signInAnonymously().catch((e)=>console.warn("No se pudo autenticar de forma anónima.", e));
+  }
+}catch(e){ console.warn("Firebase no disponible, funcionando solo local.", e); }
+
 function loadDB(){
   const base=seed();
   try{
@@ -167,7 +197,13 @@ function loadDB(){
   }catch(e){}
   try{localStorage.setItem(DB_KEY,JSON.stringify(base));}catch(e){} return base;
 }
-function saveDB(d){ try{localStorage.setItem(DB_KEY,JSON.stringify(d));}catch(e){} }
+let _saveTimer=null;
+function saveDB(d){
+  try{localStorage.setItem(DB_KEY,JSON.stringify(d));}catch(e){}
+  if(!fireDoc) return;
+  clearTimeout(_saveTimer);
+  _saveTimer=setTimeout(()=>{ fireDoc.set(d).catch((e)=>console.warn("No se pudo sincronizar (sin señal, se reintenta solo).",e)); }, 500);
+}
 
 /* ─────────────────────── Utilidades ─────────────────────── */
 const uid = (db)=>{ db.seq=(db.seq||1000)+1; return db.seq; };
@@ -1023,6 +1059,7 @@ function AdminDirectorio({db}){
   const gente=[
     ...db.guardias.map(g=>({...g,_rol:'guardia'})),
     ...(db.supervisores||[]).map(s=>({...s,_rol:'supervisor'})),
+    ...(db.administrativos||[]).map(a=>({...a,_rol:'administrativo'})),
   ];
   const lista=gente.filter(g=>{
     const t=(g.nombre+' '+g.cuenta).toLowerCase();
@@ -1042,15 +1079,15 @@ function AdminDirectorio({db}){
   return <>
     <SectionTitle right={<button onClick={exportar} style={{background:'var(--soft)',color:'var(--primary)',border:'1px solid var(--line)',borderRadius:10,padding:'8px 12px',fontWeight:700,fontSize:13,display:'flex',alignItems:'center',gap:5}}><Icon d={I.pdf} size={16} color="var(--primary)"/> PDF</button>}>Directorio</SectionTitle>
     <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar…" style={{...inputStyle,marginBottom:10}}/>
-    <ChipGroup label="Rol" sel={rol} setSel={setRol} opciones={[{v:'guardia',t:'Guardias'},{v:'supervisor',t:'Supervisores'}]}/>
+    <ChipGroup label="Rol" sel={rol} setSel={setRol} opciones={[{v:'guardia',t:'Guardias'},{v:'supervisor',t:'Supervisores'},{v:'administrativo',t:'Administrativos'}]}/>
     <ChipGroup label="Turno" sel={turno} setSel={setTurno} opciones={[{v:'Diurno',t:'Diurno'},{v:'Nocturno',t:'Nocturno'}]}/>
     <ChipGroup label="Departamento" sel={depto} setSel={setDepto} opciones={DEPARTAMENTOS.map(d=>({v:d,t:d}))}/>
     {lista.length===0 && <Empty>Sin resultados.</Empty>}
     {lista.map(g=><Card key={g._rol+g.id} style={{padding:14}}>
       <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
-        <div style={{width:44,height:44,borderRadius:'50%',background:g._rol==='supervisor'?'var(--sup-bg)':'var(--soft)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Icon d={g._rol==='supervisor'?I.shield:I.user} size={22} color={g._rol==='supervisor'?'var(--sup)':'var(--primary)'}/></div>
+        <div style={{width:44,height:44,borderRadius:'50%',background:g._rol==='supervisor'?'var(--sup-bg)':g._rol==='administrativo'?'var(--amber-bg)':'var(--soft)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Icon d={g._rol==='supervisor'?I.shield:g._rol==='administrativo'?I.id:I.user} size={22} color={g._rol==='supervisor'?'var(--sup)':g._rol==='administrativo'?'var(--amber-t)':'var(--primary)'}/></div>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontWeight:700,color:'var(--dark)'}}>{g.nombre} {g._rol==='supervisor' && <Badge tone="sup">Supervisor</Badge>}</div>
+          <div style={{fontWeight:700,color:'var(--dark)'}}>{g.nombre} {g._rol==='supervisor' && <Badge tone="sup">Supervisor</Badge>} {g._rol==='administrativo' && <Badge tone="amber">Administrativo</Badge>}</div>
           <div style={{fontSize:12,color:'var(--primary)',fontWeight:700}}>{g.cuenta}</div>
           <div style={{fontSize:12,color:'var(--muted)'}}>+591 {g.tel1}{g.correo?` · ${g.correo}`:''}</div>
         </div>
@@ -1738,6 +1775,31 @@ function SupervisorApp({db,setDb,auth,onLogout}){
 /* ═══════════════════════════ RAÍZ ═══════════════════════════ */
 function App(){
   const [db,setDb]=useState(loadDB);
+  const [sync,setSync]=useState(fireDoc?"conectando":"local");
+
+  // Escucha cambios en tiempo real de Firestore (lo que hagan otros celulares llega aquí solo)
+  useEffect(()=>{
+    if(!fireDoc) return;
+    let unsub=null;
+    const empezarEscucha=()=>{
+      if(unsub) return;
+      unsub=fireDoc.onSnapshot(snap=>{
+        if(snap.exists){
+          const remoto=snap.data();
+          const fusion={...seed(), ...remoto};
+          try{localStorage.setItem(DB_KEY,JSON.stringify(fusion));}catch(e){}
+          setDb(fusion);
+          setSync("sincronizado");
+        }else{
+          // primera vez: sube lo que ya hay localmente para crear el documento en la nube
+          fireDoc.set(db).catch(()=>{});
+        }
+      }, ()=>setSync("sin conexión"));
+    };
+    // Solo empieza a escuchar Firestore una vez que la sesión anónima quedó lista (así no choca con las Reglas de seguridad)
+    const unsubAuth=firebase.auth().onAuthStateChanged(user=>{ if(user) empezarEscucha(); });
+    return ()=>{ unsubAuth(); if(unsub) unsub(); };
+  },[]);
   // La sesión vive en sessionStorage: se borra al cerrar la pestaña. Además caduca a las SESSION_HORAS.
   const [auth,setAuth]=useState(()=>{
     try{
@@ -1760,25 +1822,32 @@ function App(){
     return ()=>clearTimeout(t);
   },[auth]);
 
-  if(!auth) return <Login db={db} onLogin={iniciarSesion}/>;
-  if(auth.role==='guardia'){
+  let contenido;
+  if(!auth) contenido=<Login db={db} onLogin={iniciarSesion}/>;
+  else if(auth.role==='guardia'){
     const g=db.guardias.find(x=>x.id===auth.persId);
-    if(!g){ return <Login db={db} onLogin={iniciarSesion}/>; }
-    return <GuardiaApp db={db} setDb={setDb} auth={auth} onLogout={logout}/>;
+    contenido = !g ? <Login db={db} onLogin={iniciarSesion}/> : <GuardiaApp db={db} setDb={setDb} auth={auth} onLogout={logout}/>;
   }
-  if(auth.role==='supervisor'){
+  else if(auth.role==='supervisor'){
     const s=(db.supervisores||[]).find(x=>x.id===auth.persId);
-    if(!s){ return <Login db={db} onLogin={iniciarSesion}/>; }
-    return <SupervisorApp db={db} setDb={setDb} auth={auth} onLogout={logout}/>;
+    contenido = !s ? <Login db={db} onLogin={iniciarSesion}/> : <SupervisorApp db={db} setDb={setDb} auth={auth} onLogout={logout}/>;
   }
-  if(auth.role==='administrativo'){
+  else if(auth.role==='administrativo'){
     const a=(db.administrativos||[]).find(x=>x.id===auth.persId);
-    if(!a){ return <Login db={db} onLogin={iniciarSesion}/>; }
-    return <AdministrativoApp db={db} setDb={setDb} auth={auth} onLogout={logout}/>;
+    contenido = !a ? <Login db={db} onLogin={iniciarSesion}/> : <AdministrativoApp db={db} setDb={setDb} auth={auth} onLogout={logout}/>;
   }
-  if(auth.role==='rrhh') return <GestionApp db={db} setDb={setDb} auth={auth} onLogout={logout} titulo="Recursos Humanos"/>;
-  if(auth.role==='operaciones') return <GestionApp db={db} setDb={setDb} auth={auth} onLogout={logout} titulo="Operaciones"/>;
-  return <AdminApp db={db} setDb={setDb} auth={auth} onLogout={logout}/>;
+  else if(auth.role==='rrhh') contenido=<GestionApp db={db} setDb={setDb} auth={auth} onLogout={logout} titulo="Recursos Humanos"/>;
+  else if(auth.role==='operaciones') contenido=<GestionApp db={db} setDb={setDb} auth={auth} onLogout={logout} titulo="Operaciones"/>;
+  else contenido=<AdminApp db={db} setDb={setDb} auth={auth} onLogout={logout}/>;
+
+  return <>
+    {fireDoc && <div style={{position:'fixed',top:6,right:8,zIndex:9999,fontSize:10.5,fontWeight:700,padding:'3px 8px',borderRadius:20,
+      background: sync==='sincronizado' ? 'var(--green-bg)' : sync==='sin conexión' ? 'var(--red-bg)' : 'var(--amber-bg)',
+      color: sync==='sincronizado' ? 'var(--green-t)' : sync==='sin conexión' ? 'var(--red-t)' : 'var(--amber-t)'}}>
+      {sync==='sincronizado' ? '● En línea' : sync==='sin conexión' ? '● Sin conexión' : '● Conectando…'}
+    </div>}
+    {contenido}
+  </>;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
