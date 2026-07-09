@@ -1,9 +1,9 @@
-const CACHE_NAME = "guardias-cache-v1";
+const CACHE_NAME = "guardias-cache-v2";
 const APP_SHELL = [
   "./index.html",
-  "./manifest.json",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png"
+  "./manifest.json?v=2",
+  "./icons/icon-192.png?v=2",
+  "./icons/icon-512.png?v=2"
 ];
 
 self.addEventListener("install", (e) => {
