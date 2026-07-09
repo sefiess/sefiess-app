@@ -13,13 +13,12 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="Sefiess"/>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js" defer></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" defer></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js" defer></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" defer></script>
 <style>
 :root{
   --primary:#1f3a5f;     /* azul marino */
@@ -344,9 +343,24 @@ function exportarPDF(titulo, columnas, filas){
   w.document.close();
 }
 
+// Carga la librería de Excel solo la primera vez que se necesita (no en cada apertura de la app)
+let _xlsxCargando=null;
+function cargarXLSX(){
+  if(window.XLSX) return Promise.resolve();
+  if(_xlsxCargando) return _xlsxCargando;
+  _xlsxCargando=new Promise((resolve)=>{
+    const s=document.createElement('script');
+    s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    s.onload=()=>resolve(); s.onerror=()=>resolve();
+    document.head.appendChild(s);
+  });
+  return _xlsxCargando;
+}
+
 // Exportar a Excel (.xlsx con SheetJS; si no está disponible, descarga CSV que Excel abre)
-function exportarExcel(nombre, columnas, filas){
+async function exportarExcel(nombre, columnas, filas){
   try{
+    await cargarXLSX();
     if(window.XLSX){
       const ws=XLSX.utils.aoa_to_sheet([columnas, ...filas]);
       const wb=XLSX.utils.book_new();
