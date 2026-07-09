@@ -167,7 +167,14 @@ function seed(){
    2) Agrega una app web y copia su configuración aquí abajo (firebaseConfig)
    3) Activa Firestore Database (modo de prueba) desde el menú del proyecto
    Si dejas firebaseConfig vacío, la app sigue funcionando pero solo guarda localmente
-   (como antes), sin compartir información entre celulares. */
+   (como antes), sin compartir información entre celulares.
+
+   NOTA DE DISEÑO: lo que crece sin límite con el tiempo (asistencia, rondas registradas,
+   extras, infracciones) se guarda como UN DOCUMENTO POR REGISTRO en su propia colección,
+   en vez de meterlo todo dentro de un solo documento. Así no se choca con el límite de
+   1 MB por documento de Firestore, sin importar cuántos años de historial se acumulen.
+   Lo demás (guardias, supervisores, unidades, contraseñas, etc.) sigue en un documento
+   "estado" único porque su tamaño está acotado por la cantidad de personal. */
 const firebaseConfig = {
   apiKey: "AIzaSyBTs9BD-loi3NT8vowsVCixXxk6_uWu010",
   authDomain: "sefiess-app.firebaseapp.com",
@@ -176,13 +183,20 @@ const firebaseConfig = {
   messagingSenderId: "644010636436",
   appId: "1:644010636436:web:9cce615fdfcac62f8e3081"
 };
-let fireDoc=null;
+const LEGACY_KEYS=["asistencia","rondasReg","extras","infracciones"]; // lo que ahora vive en colecciones propias
+let fireCore=null, fireCols=null;
 try{
   if(firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith("PEGA_AQUI")){
     firebase.initializeApp(firebaseConfig);
     const fs=firebase.firestore();
     try{ fs.enablePersistence({synchronizeTabs:true}); }catch(e){}
-    fireDoc=fs.collection("sefiess").doc("estado");
+    fireCore=fs.collection("sefiess").doc("estado");
+    fireCols={
+      asistencia:fs.collection("sefiess_asistencia"),
+      rondasReg:fs.collection("sefiess_rondasReg"),
+      extras:fs.collection("sefiess_extras"),
+      infracciones:fs.collection("sefiess_infracciones"),
+    };
     // Inicia sesión anónima: así solo quien pase por esta app (no cualquiera con las claves) puede leer/escribir,
     // siempre que las Reglas de Firestore exijan request.auth != null (ver instrucciones).
     firebase.auth().signInAnonymously().catch((e)=>console.warn("No se pudo autenticar de forma anónima.", e));
@@ -197,12 +211,32 @@ function loadDB(){
   }catch(e){}
   try{localStorage.setItem(DB_KEY,JSON.stringify(base));}catch(e){} return base;
 }
+const nucleoDeEstado=(d)=>{ const nx={...d}; LEGACY_KEYS.forEach(k=>delete nx[k]); return nx; };
+function diffPorId(prevArr,nextArr){
+  const prevMap=new Map((prevArr||[]).map(x=>[String(x.id),x]));
+  const nextMap=new Map((nextArr||[]).map(x=>[String(x.id),x]));
+  const upserts=[]; const borrados=[];
+  for(const [id,item] of nextMap){ const antes=prevMap.get(id); if(!antes || JSON.stringify(antes)!==JSON.stringify(item)) upserts.push(item); }
+  for(const id of prevMap.keys()){ if(!nextMap.has(id)) borrados.push(id); }
+  return {upserts,borrados};
+}
+let _ultimoSync=(function(){ try{ const s=localStorage.getItem(DB_KEY); return s?JSON.parse(s):null; }catch(e){ return null; } })(); // última versión que ya se mandó a Firestore, para solo enviar lo que cambió
 let _saveTimer=null;
 function saveDB(d){
   try{localStorage.setItem(DB_KEY,JSON.stringify(d));}catch(e){}
-  if(!fireDoc) return;
+  if(!fireCore) return;
   clearTimeout(_saveTimer);
-  _saveTimer=setTimeout(()=>{ fireDoc.set(d).catch((e)=>console.warn("No se pudo sincronizar (sin señal, se reintenta solo).",e)); }, 500);
+  _saveTimer=setTimeout(()=>{
+    const prev=_ultimoSync||{};
+    fireCore.set(nucleoDeEstado(d)).catch((e)=>console.warn("No se pudo sincronizar el núcleo (sin señal, se reintenta solo).",e));
+    LEGACY_KEYS.forEach(k=>{
+      const col=fireCols[k]; if(!col) return;
+      const {upserts,borrados}=diffPorId(prev[k], d[k]);
+      upserts.forEach(item=>{ if(item && item.id!=null) col.doc(String(item.id)).set(item).catch(()=>{}); });
+      borrados.forEach(id=>col.doc(id).delete().catch(()=>{}));
+    });
+    _ultimoSync=d;
+  }, 500);
 }
 
 /* ─────────────────────── Utilidades ─────────────────────── */
@@ -371,6 +405,8 @@ const I = {
   eye:<><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></>,
   eyeoff:<><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></>,
   brief:<><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></>,
+  download:<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></>,
+  upload:<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></>,
   cal:<><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></>,
   dl:<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></>,
 };
@@ -1613,9 +1649,56 @@ function PlanillasPanel({db,viewer}){
 }
 
 /* ═══════════════════════════ AJUSTES (solo admin) ═══════════════════════════ */
+function BackupPanel({db,setDb,auth}){
+  const [msg,setMsg]=useState(null);
+  const descargar=()=>{
+    const blob=new Blob([JSON.stringify(db,null,2)], {type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url; a.download=`respaldo-sefiess-${hoyISO()}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  };
+  const restaurar=(e)=>{
+    const file=e.target.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=()=>{
+      try{
+        const data=JSON.parse(reader.result);
+        if(!confirm("¿Reemplazar TODA la información actual por la de este archivo de respaldo? Esta acción no se puede deshacer.")) return;
+        const nx={...seed(), ...data};
+        pushNotif(nx, auth, "restauró un respaldo desde un archivo");
+        saveDB(nx);
+        setDb(nx);
+        setMsg("Respaldo restaurado correctamente.");
+        setTimeout(()=>setMsg(null),3000);
+      }catch(err){ alert("El archivo no es un respaldo válido (debe ser el .json descargado desde aquí)."); }
+    };
+    reader.readAsText(file);
+    e.target.value="";
+  };
+  return <Card>
+    <div style={{fontWeight:800,color:"var(--dark)",marginBottom:6}}>Respaldo de información</div>
+    <div style={{fontSize:12,color:"var(--muted)",marginBottom:12,lineHeight:1.5}}>
+      Descarga una copia completa de todos los datos (guardias, asistencia, rondas, infracciones, etc.) en un archivo .json.
+      Guárdalo en tu correo, Google Drive o donde prefieras, aparte de la nube de Firebase. Se recomienda hacerlo cada cierto tiempo.
+    </div>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      <button onClick={descargar} style={{background:"var(--primary)",color:"#fff",border:"none",borderRadius:10,padding:"10px 14px",fontWeight:700,fontSize:13.5,display:"flex",alignItems:"center",gap:6}}>
+        <Icon d={I.download} size={16} color="#fff"/> Descargar respaldo
+      </button>
+      <label style={{background:"var(--soft)",color:"var(--primary)",border:"1px solid var(--line)",borderRadius:10,padding:"10px 14px",fontWeight:700,fontSize:13.5,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+        <Icon d={I.upload} size={16} color="var(--primary)"/> Restaurar desde archivo
+        <input type="file" accept="application/json" onChange={restaurar} style={{display:"none"}}/>
+      </label>
+    </div>
+    {msg && <div style={{marginTop:10,fontSize:12.5,color:"var(--green-t)",fontWeight:700}}>{msg}</div>}
+  </Card>;
+}
 function AdminConfig({db,setDb,auth}){
   return <>
     <SectionTitle>Ajustes del sistema</SectionTitle>
+    <BackupPanel db={db} setDb={setDb} auth={auth}/>
     <NotifyEmailForm db={db} setDb={setDb} auth={auth}/>
     <CambioPassAdmin db={db} setDb={setDb} auth={auth}/>
     <CambioPassSimple titulo="Contraseña de guardias" icon={I.user}
@@ -1775,30 +1858,60 @@ function SupervisorApp({db,setDb,auth,onLogout}){
 /* ═══════════════════════════ RAÍZ ═══════════════════════════ */
 function App(){
   const [db,setDb]=useState(loadDB);
-  const [sync,setSync]=useState(fireDoc?"conectando":"local");
+  const [sync,setSync]=useState(fireCore?"conectando":"local");
 
   // Escucha cambios en tiempo real de Firestore (lo que hagan otros celulares llega aquí solo)
   useEffect(()=>{
-    if(!fireDoc) return;
-    let unsub=null;
+    if(!fireCore) return;
+    let unsubs=[]; let migrado=false;
     const empezarEscucha=()=>{
-      if(unsub) return;
-      unsub=fireDoc.onSnapshot(snap=>{
+      if(unsubs.length) return;
+      // 1) documento núcleo: guardias, supervisores, unidades, contraseñas, notificaciones, etc.
+      unsubs.push(fireCore.onSnapshot(snap=>{
         if(snap.exists){
           const remoto=snap.data();
-          const fusion={...seed(), ...remoto};
-          try{localStorage.setItem(DB_KEY,JSON.stringify(fusion));}catch(e){}
-          setDb(fusion);
+          // Migración de una sola vez: si el documento todavía trae guardado el formato viejo
+          // (arreglos grandes embebidos), los copia a sus colecciones nuevas y limpia el documento.
+          if(!migrado && LEGACY_KEYS.some(k=>Array.isArray(remoto[k]) && remoto[k].length)){
+            migrado=true;
+            LEGACY_KEYS.forEach(k=>{
+              const col=fireCols[k];
+              (remoto[k]||[]).forEach(item=>{ if(item && item.id!=null) col.doc(String(item.id)).set(item).catch(()=>{}); });
+            });
+            fireCore.set(nucleoDeEstado(remoto)).catch(()=>{});
+          }
+          setDb(prev=>{
+            const fusion={...seed(), ...prev, ...nucleoDeEstado(remoto)};
+            try{localStorage.setItem(DB_KEY,JSON.stringify(fusion));}catch(e){}
+            return fusion;
+          });
+          if(_ultimoSync) _ultimoSync={..._ultimoSync, ...nucleoDeEstado(remoto)};
           setSync("sincronizado");
         }else{
           // primera vez: sube lo que ya hay localmente para crear el documento en la nube
-          fireDoc.set(db).catch(()=>{});
+          fireCore.set(nucleoDeEstado(db)).catch(()=>{});
+          LEGACY_KEYS.forEach(k=>{
+            const col=fireCols[k];
+            (db[k]||[]).forEach(item=>{ if(item && item.id!=null) col.doc(String(item.id)).set(item).catch(()=>{}); });
+          });
         }
-      }, ()=>setSync("sin conexión"));
+      }, ()=>setSync("sin conexión")));
+      // 2) las 4 colecciones que crecen sin límite: cada una llega como su propio arreglo
+      LEGACY_KEYS.forEach(k=>{
+        unsubs.push(fireCols[k].onSnapshot(snap=>{
+          const arr=snap.docs.map(x=>x.data());
+          setDb(prev=>{
+            const fusion={...prev,[k]:arr};
+            try{localStorage.setItem(DB_KEY,JSON.stringify(fusion));}catch(e){}
+            return fusion;
+          });
+          if(_ultimoSync) _ultimoSync={..._ultimoSync,[k]:arr};
+        }, ()=>setSync("sin conexión")));
+      });
     };
     // Solo empieza a escuchar Firestore una vez que la sesión anónima quedó lista (así no choca con las Reglas de seguridad)
     const unsubAuth=firebase.auth().onAuthStateChanged(user=>{ if(user) empezarEscucha(); });
-    return ()=>{ unsubAuth(); if(unsub) unsub(); };
+    return ()=>{ unsubAuth(); unsubs.forEach(u=>u()); };
   },[]);
   // La sesión vive en sessionStorage: se borra al cerrar la pestaña. Además caduca a las SESSION_HORAS.
   const [auth,setAuth]=useState(()=>{
@@ -1841,7 +1954,7 @@ function App(){
   else contenido=<AdminApp db={db} setDb={setDb} auth={auth} onLogout={logout}/>;
 
   return <>
-    {fireDoc && <div style={{position:'fixed',top:6,right:8,zIndex:9999,fontSize:10.5,fontWeight:700,padding:'3px 8px',borderRadius:20,
+    {fireCore && <div style={{position:'fixed',top:6,right:8,zIndex:9999,fontSize:10.5,fontWeight:700,padding:'3px 8px',borderRadius:20,
       background: sync==='sincronizado' ? 'var(--green-bg)' : sync==='sin conexión' ? 'var(--red-bg)' : 'var(--amber-bg)',
       color: sync==='sincronizado' ? 'var(--green-t)' : sync==='sin conexión' ? 'var(--red-t)' : 'var(--amber-t)'}}>
       {sync==='sincronizado' ? '● En línea' : sync==='sin conexión' ? '● Sin conexión' : '● Conectando…'}
