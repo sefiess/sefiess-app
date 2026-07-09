@@ -1,12 +1,12 @@
 {
-  "name": "Sistema de Gestión de Guardias",
-  "short_name": "Guardias",
+  "name": "Sefiess",
+  "short_name": "Sefiess",
   "description": "Control de personal, asistencia, rondas e infracciones.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#eef2f8",
+  "background_color": "#fff6ed",
   "theme_color": "#1f3a5f",
   "lang": "es",
   "icons": [
