@@ -463,17 +463,14 @@ function Empty({children}){ return <Card style={{textAlign:'center',color:'var(-
 
 /* Grupo de chips para filtrar (multi-selección) */
 function ChipGroup({label,opciones,sel,setSel}){
-  const toggle=(v)=>setSel(prev=> prev.includes(v)? prev.filter(x=>x!==v) : [...prev,v]);
-  return <div style={{marginBottom:10}}>
-    <div style={{fontSize:11,fontWeight:700,color:'var(--muted)',textTransform:'uppercase',letterSpacing:.5,marginBottom:6}}>{label}</div>
-    <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-      {opciones.map(o=>{
-        const on=sel.includes(o.v);
-        return <button key={o.v} onClick={()=>toggle(o.v)}
-          style={{padding:'6px 12px',borderRadius:20,fontSize:12.5,fontWeight:700,border:'1.5px solid '+(on?'var(--primary)':'var(--line)'),
-            background:on?'var(--primary)':'#fff',color:on?'#fff':'var(--body)'}}>{o.t}</button>;
-      })}
-    </div>
+  const valor = sel.length===1 ? sel[0] : "";
+  return <div style={{marginBottom:8,display:'flex',alignItems:'center',gap:8}}>
+    <div style={{fontSize:11,fontWeight:700,color:'var(--muted)',textTransform:'uppercase',letterSpacing:.5,flexShrink:0,width:92,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</div>
+    <select value={valor} onChange={e=>setSel(e.target.value?[e.target.value]:[])}
+      style={{...inputStyle,flex:1,padding:'7px 10px',fontSize:13,fontWeight:600,height:'auto'}}>
+      <option value="">Todos</option>
+      {opciones.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
+    </select>
   </div>;
 }
 
@@ -489,6 +486,33 @@ function SemanaNav({sem,semOff,setSemOff}){
     <button onClick={()=>setSemOff(Math.min(0,semOff+1))} disabled={semOff>=0}
       style={{flex:'0 0 46px',padding:'12px 0',background:semOff>=0?'#eef2f8':'#f6f9fc',border:'1px solid var(--line)',borderRadius:10,fontWeight:800,fontSize:18,color:semOff>=0?'var(--muted)':'var(--primary)',lineHeight:1}}>›</button>
   </div>;
+}
+
+/* Navegador de semanas + Filtros unificados en un solo botón desplegable */
+function SemanaNavFiltros({sem,semOff,setSemOff,children}){
+  const [open,setOpen]=useState(false);
+  const etiqueta = semOff===0?'Semana actual':(semOff<0?`Hace ${-semOff} semana${semOff===-1?'':'s'}`:`En ${semOff} semana${semOff===1?'':'s'}`);
+  return <Card style={{padding:0,marginBottom:12,overflow:'hidden'}}>
+    <div style={{display:'flex',alignItems:'center',gap:8,padding:10}}>
+      <button onClick={()=>setSemOff(semOff-1)} style={{flex:'0 0 46px',padding:'12px 0',background:'#f6f9fc',border:'1px solid var(--line)',borderRadius:10,fontWeight:800,fontSize:18,color:'var(--primary)',lineHeight:1}}>‹</button>
+      <button onClick={()=>setOpen(o=>!o)} style={{flex:1,textAlign:'center',background:'var(--soft2)',border:'none',borderRadius:10,padding:'8px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
+        <div style={{display:'flex',alignItems:'center',gap:6}}>
+          <Icon d={I.filter} size={12} color="var(--muted)"/>
+          <span style={{fontSize:11,color:'var(--muted)',fontWeight:700}}>{etiqueta}</span>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:6}}>
+          <span style={{fontSize:13.5,fontWeight:800,color:'var(--dark)'}}>{sem.label}</span>
+          <span style={{fontSize:11,color:'var(--primary)',transform:open?'rotate(180deg)':'none',transition:'transform .15s',lineHeight:1}}>▾</span>
+        </div>
+      </button>
+      <button onClick={()=>setSemOff(Math.min(0,semOff+1))} disabled={semOff>=0}
+        style={{flex:'0 0 46px',padding:'12px 0',background:semOff>=0?'#eef2f8':'#f6f9fc',border:'1px solid var(--line)',borderRadius:10,fontWeight:800,fontSize:18,color:semOff>=0?'var(--muted)':'var(--primary)',lineHeight:1}}>›</button>
+    </div>
+    {open && <div style={{padding:'0 14px 14px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:6,margin:'6px 0 10px'}}><Icon d={I.filter} size={16} color="var(--primary)"/><span style={{fontWeight:800,fontSize:13,color:'var(--dark)'}}>Filtros</span></div>
+      {children}
+    </div>}
+  </Card>;
 }
 function Login({db,onLogin}){
   const [usuario,setUsuario]=useState("");
@@ -1229,15 +1253,13 @@ function AdminAsistencia({db,viewer}){
       <button onClick={exportarXls} style={{background:'var(--green-bg)',color:'var(--green-t)',border:'1px solid #c3ddc9',borderRadius:10,padding:'8px 10px',fontWeight:700,fontSize:13,display:'flex',alignItems:'center',gap:4}}><Icon d={I.dl} size={16} color="var(--green-t)"/> Excel</button>
       <button onClick={exportar} style={{background:'var(--soft)',color:'var(--primary)',border:'1px solid var(--line)',borderRadius:10,padding:'8px 10px',fontWeight:700,fontSize:13,display:'flex',alignItems:'center',gap:4}}><Icon d={I.pdf} size={16} color="var(--primary)"/> PDF</button>
     </div>}>Asistencia</SectionTitle>
-    <SemanaNav sem={sem} semOff={semOff} setSemOff={setSemOff}/>
-    <Card style={{padding:'12px 14px'}}>
-      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}><Icon d={I.filter} size={16} color="var(--primary)"/><span style={{fontWeight:800,fontSize:13,color:'var(--dark)'}}>Filtros</span></div>
+    <SemanaNavFiltros sem={sem} semOff={semOff} setSemOff={setSemOff}>
       <ChipGroup label="Rol" sel={rol} setSel={setRol} opciones={rolChips}/>
       <ChipGroup label="Turno" sel={turno} setSel={setTurno} opciones={[{v:'Diurno',t:'Diurno'},{v:'Nocturno',t:'Nocturno'}]}/>
       <ChipGroup label="Evento" sel={evento} setSel={setEvento} opciones={[{v:'entrada',t:'Entrada'},{v:'salida',t:'Salida'},{v:'atraso',t:'Atraso'}]}/>
       <ChipGroup label="Departamento" sel={depto} setSel={setDepto} opciones={DEPARTAMENTOS.map(d=>({v:d,t:d}))}/>
       <ChipGroup label="Centro" sel={centro} setSel={setCentro} opciones={db.unidades.map(u=>({v:String(u.id),t:u.nombre}))}/>
-    </Card>
+    </SemanaNavFiltros>
     {regs.length===0 && <Empty>Sin registros para este filtro.</Empty>}
     {regs.map(({a,p})=>{
       const sup=a.persRole==='supervisor';
@@ -1289,14 +1311,12 @@ function AdminRondas({db,viewer}){
       <button onClick={exportarXls} style={{background:'var(--green-bg)',color:'var(--green-t)',border:'1px solid #c3ddc9',borderRadius:10,padding:'8px 10px',fontWeight:700,fontSize:13,display:'flex',alignItems:'center',gap:4}}><Icon d={I.dl} size={16} color="var(--green-t)"/> Excel</button>
       <button onClick={exportar} style={{background:'var(--soft)',color:'var(--primary)',border:'1px solid var(--line)',borderRadius:10,padding:'8px 10px',fontWeight:700,fontSize:13,display:'flex',alignItems:'center',gap:4}}><Icon d={I.pdf} size={16} color="var(--primary)"/> PDF</button>
     </div>}>Rondas de control</SectionTitle>
-    <SemanaNav sem={sem} semOff={semOff} setSemOff={setSemOff}/>
-    <Card style={{padding:'12px 14px'}}>
-      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}><Icon d={I.filter} size={16} color="var(--primary)"/><span style={{fontWeight:800,fontSize:13,color:'var(--dark)'}}>Filtros</span></div>
+    <SemanaNavFiltros sem={sem} semOff={semOff} setSemOff={setSemOff}>
       <ChipGroup label="Rol" sel={rol} setSel={setRol} opciones={[{v:'guardia',t:'Guardias'},{v:'supervisor',t:'Supervisores'}]}/>
       <ChipGroup label="Turno" sel={turno} setSel={setTurno} opciones={[{v:'Diurno',t:'Diurno'},{v:'Nocturno',t:'Nocturno'}]}/>
       <ChipGroup label="Departamento" sel={depto} setSel={setDepto} opciones={DEPARTAMENTOS.map(d=>({v:d,t:d}))}/>
       <ChipGroup label="Centro" sel={centro} setSel={setCentro} opciones={db.unidades.map(u=>({v:String(u.id),t:u.nombre}))}/>
-    </Card>
+    </SemanaNavFiltros>
     {regs.length===0 && <Empty>Sin rondas registradas para este filtro.</Empty>}
     {regs.map(({r,p})=>{
       const sup=r.persRole==='supervisor';
